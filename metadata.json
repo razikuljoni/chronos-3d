@@ -1,0 +1,6 @@
+{
+  "name": "Chronos Luxe 3D Smartwatch",
+  "description": "Luxury 3D smartwatch experience with aperture iris entrance, sapphire glass dome reflections, biometric rings, mouse parallax, and scroll-linked 3D choreography.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
