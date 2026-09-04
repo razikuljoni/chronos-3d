@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { WatchConfig, SectionPose } from '../types';
+import { WatchConfig, SectionPose, PerformanceMetrics } from '../types';
 import { DynamicWatchFace } from '../utils/watchFaceTexture';
 import {
   createStudioEnvMap,
@@ -16,6 +16,7 @@ interface Watch3DCanvasProps {
   currentSectionIndex: number;
   scrollFraction: number; // 0.0 to totalSections - 1
   onInspectToggle?: (inspect: boolean) => void;
+  onMetricsUpdate?: (metrics: PerformanceMetrics) => void;
 }
 
 // Key poses for each scroll section
@@ -62,11 +63,12 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
   config,
   scrollFraction,
   onInspectToggle,
+  onMetricsUpdate,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // References for Three.js state
+  // References for Three.js state & physics engine
   const stateRef = useRef<{
     renderer: THREE.WebGLRenderer | null;
     scene: THREE.Scene | null;
@@ -80,6 +82,22 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
     dragStart: { x: number; y: number };
     orbitRot: { x: number; y: number };
     animationFrameId: number | null;
+    // Physical Inertia State
+    physics: {
+      currentRot: [number, number, number];
+      rotVelocity: [number, number, number];
+      currentPos: [number, number, number];
+      posVelocity: [number, number, number];
+      currentScale: number;
+      scaleVelocity: number;
+      lastScroll: number;
+      smoothedScrollVelocity: number;
+    };
+    // Performance Telemetry tracking
+    telemetry: {
+      frameTimes: number[];
+      lastDispatchTime: number;
+    };
   }>({
     renderer: null,
     scene: null,
@@ -93,6 +111,20 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
     dragStart: { x: 0, y: 0 },
     orbitRot: { x: 0, y: 0 },
     animationFrameId: null,
+    physics: {
+      currentRot: [0.18, -0.28, 0.08],
+      rotVelocity: [0, 0, 0],
+      currentPos: [0, 0.05, 0],
+      posVelocity: [0, 0, 0],
+      currentScale: 1.0,
+      scaleVelocity: 0,
+      lastScroll: 0,
+      smoothedScrollVelocity: 0,
+    },
+    telemetry: {
+      frameTimes: [],
+      lastDispatchTime: 0,
+    },
   });
 
   // Keep latest config in ref for the render loop
@@ -101,6 +133,9 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
 
   const scrollRef = useRef(scrollFraction);
   scrollRef.current = scrollFraction;
+
+  const onMetricsUpdateRef = useRef(onMetricsUpdate);
+  onMetricsUpdateRef.current = onMetricsUpdate;
 
   // Initialize Three.js scene
   useEffect(() => {
@@ -149,11 +184,9 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
     scene.add(watchGroup);
 
     // 8. Lights
-    // Ambient Light
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
     scene.add(ambientLight);
 
-    // Key Directional Light (Warm luxury sunlight)
     const keyLight = new THREE.DirectionalLight(0xfff6e8, 2.8);
     keyLight.position.set(5, 8, 7);
     keyLight.castShadow = true;
@@ -161,36 +194,26 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
     keyLight.shadow.mapSize.height = 1024;
     scene.add(keyLight);
 
-    // Cool Rim Light (Left flank)
     const rimLight = new THREE.DirectionalLight(0xaad4ff, 1.8);
     rimLight.position.set(-6, 4, -4);
     scene.add(rimLight);
 
-    // Under-glow Fill Light (Bounces off the luxury beige pod)
     const bounceLight = new THREE.DirectionalLight(0xedd9b6, 1.2);
     bounceLight.position.set(0, -6, 4);
     scene.add(bounceLight);
 
-    // Specular Gleam Light for the Sapphire Dome
     const specularLight = new THREE.DirectionalLight(0xffffff, 2.5);
     specularLight.position.set(-3, 6, 6);
     scene.add(specularLight);
 
     // Save refs
-    stateRef.current = {
-      renderer,
-      scene,
-      camera,
-      watchGroup,
-      materials,
-      dynamicFace,
-      specularLight,
-      mouse: { x: 0, y: 0, targetX: 0, targetY: 0 },
-      isDragging: false,
-      dragStart: { x: 0, y: 0 },
-      orbitRot: { x: 0, y: 0 },
-      animationFrameId: null,
-    };
+    stateRef.current.renderer = renderer;
+    stateRef.current.scene = scene;
+    stateRef.current.camera = camera;
+    stateRef.current.watchGroup = watchGroup;
+    stateRef.current.materials = materials;
+    stateRef.current.dynamicFace = dynamicFace;
+    stateRef.current.specularLight = specularLight;
 
     // Resize Handler
     const handleResize = () => {
@@ -240,16 +263,27 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
     };
     window.addEventListener('touchmove', handleTouchMove, { passive: true });
 
-    // Animation Loop
+    // Animation Loop with Physics & Performance Telemetry
     let lastTime = performance.now();
 
     const animate = (currentTime: number) => {
       stateRef.current.animationFrameId = requestAnimationFrame(animate);
 
-      const delta = (currentTime - lastTime) / 1000;
+      const rawDelta = (currentTime - lastTime) / 1000;
       lastTime = currentTime;
+      // Clamp delta to prevent physics explosion on background tab wake
+      const delta = Math.min(Math.max(rawDelta, 0.001), 0.06);
+      const frameDeltaMs = rawDelta * 1000;
 
-      const { mouse, watchGroup: watch, dynamicFace: face, specularLight: specLight } = stateRef.current;
+      const {
+        mouse,
+        watchGroup: watch,
+        dynamicFace: face,
+        specularLight: specLight,
+        physics,
+        telemetry,
+      } = stateRef.current;
+
       if (!watch || !face || !renderer || !scene || !camera) return;
 
       // 1. Update live dynamic watch face
@@ -259,76 +293,175 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
       mouse.x += (mouse.targetX - mouse.x) * 0.06;
       mouse.y += (mouse.targetY - mouse.y) * 0.06;
 
-      // 3. Interpolate Watch Position & Rotation across Scroll Sections
+      // 3. PHYSICAL INERTIA & SCROLL MOMENTUM TRACKING
       const sFraction = scrollRef.current;
+      const scrollDelta = sFraction - physics.lastScroll;
+      physics.lastScroll = sFraction;
+
+      const instantScrollVelocity = scrollDelta / delta;
+      // Exponential smoothing for scroll velocity
+      physics.smoothedScrollVelocity += (instantScrollVelocity - physics.smoothedScrollVelocity) * 0.22;
+
+      // Calculate Target Pose across Scroll Sections
       const totalPoses = SECTION_POSES.length;
       const clampedFraction = Math.max(0, Math.min(totalPoses - 1, sFraction));
       const baseIdx = Math.floor(clampedFraction);
       const nextIdx = Math.min(totalPoses - 1, baseIdx + 1);
       const blend = clampedFraction - baseIdx;
 
-      // Smooth step easing for luxurious feel
+      // Smooth cubic step easing
       const t = blend * blend * (3 - 2 * blend);
 
       const p1 = SECTION_POSES[baseIdx];
       const p2 = SECTION_POSES[nextIdx];
 
-      // Interpolate base target pose
-      const targetPos = [
+      const baseTargetPos = [
         THREE.MathUtils.lerp(p1.position[0], p2.position[0], t),
         THREE.MathUtils.lerp(p1.position[1], p2.position[1], t),
         THREE.MathUtils.lerp(p1.position[2], p2.position[2], t),
       ];
-      const targetRot = [
+      const baseTargetRot = [
         THREE.MathUtils.lerp(p1.rotation[0], p2.rotation[0], t),
         THREE.MathUtils.lerp(p1.rotation[1], p2.rotation[1], t),
         THREE.MathUtils.lerp(p1.rotation[2], p2.rotation[2], t),
       ];
-      const targetScale = THREE.MathUtils.lerp(p1.scale, p2.scale, t);
+      const baseTargetScale = THREE.MathUtils.lerp(p1.scale, p2.scale, t);
 
-      // Add gentle luxury idle floating oscillation
+      // Idle floating oscillation
       const idleTime = currentTime * 0.001;
-      const idleFloatingY = Math.sin(idleTime * 1.5) * 0.04;
+      const idleFloatingY = Math.sin(idleTime * 1.5) * 0.035;
       const idleTiltZ = Math.cos(idleTime * 1.2) * 0.015;
 
-      // Responsive adjustments for smaller screens (mobile viewports)
       const isMobile = window.innerWidth < 768;
       const mobileScaleMult = isMobile ? 0.76 : 1.0;
       const mobileXMult = isMobile ? 0.25 : 1.0;
 
-      // Apply Parallax + Drag Orbit
-      const currentOrbit = stateRef.current.orbitRot;
       const isInspect = configRef.current.inspectMode;
+      const currentOrbit = stateRef.current.orbitRot;
 
       if (isInspect) {
-        // Full interactive 3D rotation mode
-        watch.rotation.x += (currentOrbit.x - watch.rotation.x) * 0.1;
-        watch.rotation.y += (currentOrbit.y - watch.rotation.y) * 0.1;
-        watch.position.x += (0 - watch.position.x) * 0.08;
-        watch.position.y += (0.1 - watch.position.y) * 0.08;
-        watch.position.z += (1.4 - watch.position.z) * 0.08;
+        // Direct interactive 3D inspect mode
+        physics.currentRot[0] += (currentOrbit.x - physics.currentRot[0]) * 0.1;
+        physics.currentRot[1] += (currentOrbit.y - physics.currentRot[1]) * 0.1;
+        physics.currentPos[0] += (0 - physics.currentPos[0]) * 0.08;
+        physics.currentPos[1] += (0.1 - physics.currentPos[1]) * 0.08;
+        physics.currentPos[2] += (1.4 - physics.currentPos[2]) * 0.08;
+        physics.rotVelocity = [0, 0, 0];
+        physics.posVelocity = [0, 0, 0];
       } else {
-        // Auto-rotation or mouse parallax
+        // SECOND-ORDER SPRING-DAMPER INERTIA ENGINE
+        // Injected momentum torque from scroll velocity:
+        // As the user flicks or scrolls, the watch tilts into the momentum with physical mass inertia
+        const momentumTorqueX = -physics.smoothedScrollVelocity * 0.14;
+        const momentumTorqueY = physics.smoothedScrollVelocity * 0.24;
+        const momentumDipY = -physics.smoothedScrollVelocity * 0.08;
+
         const autoRot = configRef.current.autoRotate ? idleTime * 0.25 : 0;
 
-        watch.position.x += (targetPos[0] * mobileXMult + mouse.x * 0.22 - watch.position.x) * 0.08;
-        watch.position.y += (targetPos[1] + idleFloatingY + mouse.y * 0.18 - watch.position.y) * 0.08;
-        watch.position.z += (targetPos[2] - watch.position.z) * 0.08;
+        const desiredRotX = baseTargetRot[0] + momentumTorqueX - mouse.y * 0.26;
+        const desiredRotY = baseTargetRot[1] + momentumTorqueY + autoRot + mouse.x * 0.32 + currentOrbit.y * 0.3;
+        const desiredRotZ = baseTargetRot[2] + idleTiltZ;
 
-        watch.rotation.x += (targetRot[0] - mouse.y * 0.28 - watch.rotation.x) * 0.08;
-        watch.rotation.y += (targetRot[1] + autoRot + mouse.x * 0.35 + currentOrbit.y * 0.5 - watch.rotation.y) * 0.08;
-        watch.rotation.z += (targetRot[2] + idleTiltZ - watch.rotation.z) * 0.08;
+        const desiredPosX = baseTargetPos[0] * mobileXMult + mouse.x * 0.22;
+        const desiredPosY = baseTargetPos[1] + momentumDipY + idleFloatingY + mouse.y * 0.18;
+        const desiredPosZ = baseTargetPos[2];
 
-        const currentScale = watch.scale.x;
-        const nextScale = currentScale + (targetScale * mobileScaleMult - currentScale) * 0.08;
-        watch.scale.set(nextScale, nextScale, nextScale);
+        // Physics constants: High stiffness & weighted mechanical damping for luxury horology feel
+        const springK = 32.0;
+        const dampingC = 9.2;
+
+        // Rotational acceleration (F = k*x - c*v)
+        const accelRotX = (desiredRotX - physics.currentRot[0]) * springK - physics.rotVelocity[0] * dampingC;
+        const accelRotY = (desiredRotY - physics.currentRot[1]) * springK - physics.rotVelocity[1] * dampingC;
+        const accelRotZ = (desiredRotZ - physics.currentRot[2]) * springK - physics.rotVelocity[2] * dampingC;
+
+        physics.rotVelocity[0] += accelRotX * delta;
+        physics.rotVelocity[1] += accelRotY * delta;
+        physics.rotVelocity[2] += accelRotZ * delta;
+
+        physics.currentRot[0] += physics.rotVelocity[0] * delta;
+        physics.currentRot[1] += physics.rotVelocity[1] * delta;
+        physics.currentRot[2] += physics.rotVelocity[2] * delta;
+
+        // Positional acceleration
+        const posSpringK = 28.0;
+        const posDampingC = 8.6;
+
+        const accelPosX = (desiredPosX - physics.currentPos[0]) * posSpringK - physics.posVelocity[0] * posDampingC;
+        const accelPosY = (desiredPosY - physics.currentPos[1]) * posSpringK - physics.posVelocity[1] * posDampingC;
+        const accelPosZ = (desiredPosZ - physics.currentPos[2]) * posSpringK - physics.posVelocity[2] * posDampingC;
+
+        physics.posVelocity[0] += accelPosX * delta;
+        physics.posVelocity[1] += accelPosY * delta;
+        physics.posVelocity[2] += accelPosZ * delta;
+
+        physics.currentPos[0] += physics.posVelocity[0] * delta;
+        physics.currentPos[1] += physics.posVelocity[1] * delta;
+        physics.currentPos[2] += physics.posVelocity[2] * delta;
+
+        // Scale interpolation
+        const targetScale = baseTargetScale * mobileScaleMult;
+        physics.currentScale += (targetScale - physics.currentScale) * 0.08;
       }
 
-      // 4. Animate specular gleam light across the sapphire dome as user scrolls
+      // Apply simulated physical state to Three.js watch group
+      watch.rotation.set(
+        physics.currentRot[0],
+        physics.currentRot[1],
+        physics.currentRot[2]
+      );
+      watch.position.set(
+        physics.currentPos[0],
+        physics.currentPos[1],
+        physics.currentPos[2]
+      );
+      watch.scale.set(
+        physics.currentScale,
+        physics.currentScale,
+        physics.currentScale
+      );
+
+      // Animate specular gleam light across sapphire dome
       if (specLight) {
         specLight.position.x = -4 + Math.sin(sFraction * Math.PI) * 8;
         specLight.position.y = 5 + Math.cos(sFraction * Math.PI) * 3;
         specLight.intensity = 2.2 + Math.abs(mouse.x) * 1.5;
+      }
+
+      // 4. PERFORMANCE TELEMETRY RECORDING
+      telemetry.frameTimes.push(frameDeltaMs);
+      if (telemetry.frameTimes.length > 60) {
+        telemetry.frameTimes.shift();
+      }
+
+      // Dispatch telemetry at ~10Hz to avoid React re-render thrashing
+      if (
+        onMetricsUpdateRef.current &&
+        currentTime - telemetry.lastDispatchTime > 90
+      ) {
+        telemetry.lastDispatchTime = currentTime;
+        const avgDelta =
+          telemetry.frameTimes.reduce((acc, v) => acc + v, 0) /
+            telemetry.frameTimes.length || 16.6;
+
+        const angularMom = Math.sqrt(
+          physics.rotVelocity[0] * physics.rotVelocity[0] +
+            physics.rotVelocity[1] * physics.rotVelocity[1] +
+            physics.rotVelocity[2] * physics.rotVelocity[2]
+        );
+
+        onMetricsUpdateRef.current({
+          fps: Math.min(120, Math.max(1, 1000 / avgDelta)),
+          frameTimeMs: frameDeltaMs,
+          drawCalls: renderer.info.render.calls,
+          triangles: renderer.info.render.triangles,
+          geometries: renderer.info.memory.geometries,
+          textures: renderer.info.memory.textures,
+          scrollVelocity: physics.smoothedScrollVelocity,
+          angularMomentum: angularMom,
+          history: [...telemetry.frameTimes],
+          rendererName: 'WebGL2 // ACES Filmic HDR',
+        });
       }
 
       renderer.render(scene, camera);
@@ -381,7 +514,9 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
       className={`fixed inset-0 z-10 ${
-        config.inspectMode ? 'pointer-events-auto cursor-grab active:cursor-grabbing' : 'pointer-events-none'
+        config.inspectMode
+          ? 'pointer-events-auto cursor-grab active:cursor-grabbing'
+          : 'pointer-events-none'
       }`}
       style={{ touchAction: config.inspectMode ? 'none' : 'auto' }}
     >
@@ -391,7 +526,7 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
         className="w-full h-full block"
       />
 
-      {/* Floating 3D Inspect Mode Indicator & Reset if Active */}
+      {/* Floating 3D Inspect Mode Indicator */}
       {config.inspectMode && (
         <div className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-[#12141a]/90 backdrop-blur-md border border-[#c8a97e]/40 px-5 py-2.5 rounded-full flex items-center gap-3 text-xs font-mono text-[#f4efe6] shadow-2xl pointer-events-auto animate-bounce">
           <span className="w-2 h-2 rounded-full bg-[#99ff00] animate-pulse" />

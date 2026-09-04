@@ -10,6 +10,20 @@ export interface WatchConfig {
   faceMode: WatchFaceMode;
   autoRotate: boolean;
   inspectMode: boolean;
+  showTechSpecs: boolean;
+}
+
+export interface PerformanceMetrics {
+  fps: number;
+  frameTimeMs: number;
+  drawCalls: number;
+  triangles: number;
+  geometries: number;
+  textures: number;
+  scrollVelocity: number;
+  angularMomentum: number;
+  history: number[]; // recent frame time history for graph
+  rendererName: string;
 }
 
 export interface SectionPose {

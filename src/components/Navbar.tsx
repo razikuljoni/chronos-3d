@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { WatchConfig } from '../types';
-import { Eye, RotateCcw, ShieldCheck } from 'lucide-react';
+import { WatchConfig, PerformanceMetrics } from '../types';
+import { Eye, RotateCcw, Cpu, Activity } from 'lucide-react';
 
 interface NavbarProps {
   config: WatchConfig;
@@ -8,6 +8,7 @@ interface NavbarProps {
   irisOpen: boolean;
   onToggleIris: () => void;
   onOpenOrderModal: () => void;
+  metrics?: PerformanceMetrics;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -16,6 +17,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   irisOpen,
   onToggleIris,
   onOpenOrderModal,
+  metrics,
 }) => {
   const [zurichTime, setZurichTime] = useState<string>('');
 
@@ -95,6 +97,29 @@ export const Navbar: React.FC<NavbarProps> = ({
           className="p-2.5 rounded-full bg-[#12141a]/80 hover:bg-[#1f232d] text-[#e6c894] border border-[#c8a97e]/40 backdrop-blur-md transition-all shadow-md"
         >
           <RotateCcw className="w-4 h-4" />
+        </button>
+
+        {/* Technical Telemetry HUD Toggle */}
+        <button
+          onClick={() => onChangeConfig({ showTechSpecs: !config.showTechSpecs })}
+          title="Toggle Technical Telemetry HUD [Press T]"
+          className={`px-3 py-1.5 rounded-full font-mono text-[11px] uppercase tracking-wider transition-all flex items-center gap-1.5 border backdrop-blur-md ${
+            config.showTechSpecs
+              ? 'bg-[#c8a97e] text-[#0c0d10] font-bold border-[#c8a97e] shadow-[0_0_20px_rgba(200,169,126,0.5)]'
+              : 'bg-[#12141a]/80 hover:bg-[#1f232d] text-[#f4efe6] border-white/10'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5 text-[#00e5ff]" />
+          <span className="hidden sm:inline">Telemetry</span>
+          {metrics && (
+            <span
+              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                config.showTechSpecs ? 'bg-black/20 text-black' : 'bg-white/10 text-[#99ff00]'
+              }`}
+            >
+              {metrics.fps.toFixed(0)} FPS
+            </span>
+          )}
         </button>
 
         {/* 3D Orbit Toggle */}

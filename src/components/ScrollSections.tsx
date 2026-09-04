@@ -107,6 +107,18 @@ export const ScrollSections: React.FC<ScrollSectionsProps> = ({
               <RotateCcw className="w-3.5 h-3.5 text-[#c8a97e]" />
               <span>{irisOpen ? 'Close Iris' : 'Open Iris Shutter'}</span>
             </button>
+
+            <button
+              onClick={() => onChangeConfig({ showTechSpecs: !config.showTechSpecs })}
+              className={`px-5 py-3 rounded-full border font-mono text-xs uppercase tracking-wider transition-all duration-300 flex items-center gap-2 backdrop-blur-md ${
+                config.showTechSpecs
+                  ? 'bg-[#c8a97e] text-[#0c0d10] font-bold border-[#c8a97e] shadow-[0_0_25px_rgba(200,169,126,0.5)]'
+                  : 'bg-[#171920]/80 hover:bg-[#222530] text-[#f4efe6] border-white/15 hover:border-[#c8a97e]/40'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5 text-[#00e5ff]" />
+              <span>{config.showTechSpecs ? 'Close Telemetry' : 'Telemetry HUD [T]'}</span>
+            </button>
           </div>
         </div>
 
@@ -594,6 +606,36 @@ export const ScrollSections: React.FC<ScrollSectionsProps> = ({
               <span className="text-[#a89f91]">TELEMETRY BUS</span>
               <span className="text-[#fbf8f2] font-semibold">Bluetooth 5.4 &bull; UWB &bull; Dual-Freq L1/L5 GPS</span>
             </div>
+          </div>
+
+          {/* Live Telemetry & Frame Rate Diagnostic Card */}
+          <div className="mb-8 p-5 rounded-2xl bg-black/40 border border-[#c8a97e]/35 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="p-2.5 rounded-xl bg-[#c8a97e]/15 border border-[#c8a97e]/30 text-[#00e5ff]">
+                <Activity className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-[#fbf8f2] uppercase tracking-wider flex items-center gap-2">
+                  <span>REAL-TIME TELEMETRY & FRAME BENCH</span>
+                  <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#99ff00]/20 text-[#99ff00] font-mono font-bold">
+                    LIVE
+                  </span>
+                </div>
+                <p className="text-[11px] text-[#a89f91] mt-0.5 font-light">
+                  Inspect frame rates, inertia physics, draw calls, and WebGL2 GPU pipeline.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => onChangeConfig({ showTechSpecs: !config.showTechSpecs })}
+              className={`w-full sm:w-auto px-4 py-2.5 rounded-full font-mono text-xs uppercase tracking-wider transition-all whitespace-nowrap border ${
+                config.showTechSpecs
+                  ? 'bg-[#c8a97e] text-[#0c0d10] font-bold border-[#c8a97e]'
+                  : 'bg-[#1a1d26] hover:bg-[#232734] text-[#c8a97e] border-[#c8a97e]/40'
+              }`}
+            >
+              {config.showTechSpecs ? 'Hide Telemetry' : 'Launch Telemetry HUD [T]'}
+            </button>
           </div>
 
           {/* Pricing & Order Card */}
