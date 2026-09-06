@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { WatchConfig, PerformanceMetrics } from '../types';
-import { Eye, RotateCcw, Cpu, Activity } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { WatchConfig, PerformanceMetrics, TimeOfDayPreset } from '../types';
+import { Eye, RotateCcw, Activity, Sun, Moon, Sparkles, Play, Pause, Clock } from 'lucide-react';
+import { TIME_PRESETS } from '../utils/timeOfDayAtmosphere';
 
 interface NavbarProps {
   config: WatchConfig;
@@ -20,6 +21,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   metrics,
 }) => {
   const [zurichTime, setZurichTime] = useState<string>('');
+  const [showAtmosphereMenu, setShowAtmosphereMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // Live Swiss time clock
   useEffect(() => {
@@ -38,6 +41,17 @@ export const Navbar: React.FC<NavbarProps> = ({
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Close atmosphere dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowAtmosphereMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   return (
@@ -98,6 +112,149 @@ export const Navbar: React.FC<NavbarProps> = ({
         >
           <RotateCcw className="w-4 h-4" />
         </button>
+
+        {/* Time of Day Atmospheric Reflection Selector */}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setShowAtmosphereMenu((prev) => !prev)}
+            title="Atmospheric Time of Day Lighting & Sapphire Reflection"
+            className={`px-3 py-1.5 rounded-full font-mono text-[11px] uppercase tracking-wider transition-all flex items-center gap-1.5 border backdrop-blur-md ${
+              config.timeOfDay === 'golden' || (metrics?.atmosphere && metrics.atmosphere.goldenHourMix > 0.4)
+                ? 'bg-[#2a1d12]/90 hover:bg-[#382618] text-[#ffb049] border-[#ff9c38]/50 shadow-[0_0_15px_rgba(255,156,56,0.25)]'
+                : 'bg-[#101828]/90 hover:bg-[#18243c] text-[#00e5ff] border-[#00e5ff]/40 shadow-[0_0_15px_rgba(0,229,255,0.2)]'
+            }`}
+          >
+            {config.timeOfDay === 'golden' || (metrics?.atmosphere && metrics.atmosphere.goldenHourMix > 0.4) ? (
+              <Sun className="w-3.5 h-3.5 text-[#ff9c38]" />
+            ) : (
+              <Moon className="w-3.5 h-3.5 text-[#00e5ff]" />
+            )}
+            <span className="hidden sm:inline">
+              {metrics?.atmosphere?.phaseName ? metrics.atmosphere.phaseName.split(' ')[0] : 'Atmosphere'}
+            </span>
+            {metrics?.atmosphere && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/10">
+                {metrics.atmosphere.kelvin}K
+              </span>
+            )}
+          </button>
+
+          {/* Atmospheric Time of Day Dropdown Menu */}
+          {showAtmosphereMenu && (
+            <div className="absolute right-0 mt-2 w-72 p-3 bg-[#0d0f15]/95 backdrop-blur-2xl border border-[#c8a97e]/40 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] z-50 text-xs font-mono">
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
+                <span className="text-[10px] uppercase font-bold text-[#e6c894] tracking-wider">
+                  Solar Environment & Sapphire Dome
+                </span>
+                <span className="text-[9px] text-[#a89f91]">
+                  {metrics?.atmosphere?.kelvin}K
+                </span>
+              </div>
+
+              {/* Preset Buttons */}
+              <div className="grid grid-cols-2 gap-1.5 mb-3">
+                <button
+                  onClick={() => {
+                    onChangeConfig({ timeOfDay: 'golden', timeHour: 17.5, timeCycleActive: false });
+                  }}
+                  className={`p-2 rounded-xl text-left border transition-all ${
+                    config.timeOfDay === 'golden' && !config.timeCycleActive
+                      ? 'bg-[#ff9c38]/20 border-[#ff9c38] text-[#ffb049]'
+                      : 'bg-white/5 border-white/5 hover:bg-white/10 text-[#d1c7b7]'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#ffb049]">
+                    <Sun className="w-3 h-3" />
+                    <span>Golden Hour</span>
+                  </div>
+                  <div className="text-[9px] text-[#a89f91] mt-0.5">17:30 &bull; 2,800K Warm</div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onChangeConfig({ timeOfDay: 'evening', timeHour: 22.0, timeCycleActive: false });
+                  }}
+                  className={`p-2 rounded-xl text-left border transition-all ${
+                    config.timeOfDay === 'evening' && !config.timeCycleActive
+                      ? 'bg-[#00e5ff]/20 border-[#00e5ff] text-[#00e5ff]'
+                      : 'bg-white/5 border-white/5 hover:bg-white/10 text-[#d1c7b7]'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#00e5ff]">
+                    <Moon className="w-3 h-3" />
+                    <span>Cool Evening</span>
+                  </div>
+                  <div className="text-[9px] text-[#a89f91] mt-0.5">22:00 &bull; 8,500K Cobalt</div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onChangeConfig({ timeOfDay: 'dusk', timeHour: 19.5, timeCycleActive: false });
+                  }}
+                  className={`p-2 rounded-xl text-left border transition-all ${
+                    config.timeOfDay === 'dusk' && !config.timeCycleActive
+                      ? 'bg-[#ff7895]/20 border-[#ff7895] text-[#ff7895]'
+                      : 'bg-white/5 border-white/5 hover:bg-white/10 text-[#d1c7b7]'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#ff7895]">
+                    <Sparkles className="w-3 h-3" />
+                    <span>Dusk Twilight</span>
+                  </div>
+                  <div className="text-[9px] text-[#a89f91] mt-0.5">19:30 &bull; Coral Violet</div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onChangeConfig({ timeOfDay: 'midday', timeHour: 12.5, timeCycleActive: false });
+                  }}
+                  className={`p-2 rounded-xl text-left border transition-all ${
+                    config.timeOfDay === 'midday' && !config.timeCycleActive
+                      ? 'bg-white/20 border-white text-white'
+                      : 'bg-white/5 border-white/5 hover:bg-white/10 text-[#d1c7b7]'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#fbf8f2]">
+                    <Sun className="w-3 h-3 text-white" />
+                    <span>Zenith Noon</span>
+                  </div>
+                  <div className="text-[9px] text-[#a89f91] mt-0.5">12:30 &bull; 6,500K White</div>
+                </button>
+              </div>
+
+              {/* Continuous Solar Day/Night Auto-Cycle Toggle */}
+              <button
+                onClick={() => {
+                  onChangeConfig({ timeCycleActive: !config.timeCycleActive });
+                }}
+                className={`w-full py-2 px-3 rounded-xl border flex items-center justify-between text-[11px] transition-all mb-2 ${
+                  config.timeCycleActive
+                    ? 'bg-[#c8a97e] text-[#0c0d10] font-bold border-[#c8a97e]'
+                    : 'bg-white/5 hover:bg-white/10 text-[#f4efe6] border-white/10'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  {config.timeCycleActive ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  <span>Continuous 24h Solar Cycle</span>
+                </div>
+                <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-black/20">
+                  {config.timeCycleActive ? 'Active' : 'Paused'}
+                </span>
+              </button>
+
+              {/* Real Local Time Sync Button */}
+              <button
+                onClick={() => {
+                  onChangeConfig({ timeOfDay: 'auto', timeCycleActive: false });
+                }}
+                className="w-full py-1.5 px-3 rounded-lg flex items-center justify-center gap-1.5 text-[10px] uppercase tracking-wider text-[#a89f91] hover:text-[#f4efe6] transition-colors"
+              >
+                <Clock className="w-3 h-3" />
+                <span>Sync with Zürich Clock ({zurichTime.slice(0, 5)})</span>
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Technical Telemetry HUD Toggle */}
         <button

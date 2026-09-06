@@ -108,6 +108,117 @@ export function createWatchMaterials(envMap: THREE.Texture): WatchMaterials {
     opacity: 0.96,
   });
 
+  // Dynamic Time-of-Day Environmental Shader Uniforms
+  const sapphireUniforms = {
+    uTimeOfDay: { value: 17.5 },
+    uWarmColor: { value: new THREE.Color(1.0, 0.72, 0.28) },
+    uCoolColor: { value: new THREE.Color(0.18, 0.45, 0.95) },
+    uGoldenHourMix: { value: 0.8 },
+    uArCoatingColor: { value: new THREE.Color(1.0, 0.42, 0.15) },
+    uSunDir: { value: new THREE.Vector3(0.5, 0.8, 0.5).normalize() },
+    uTime: { value: 0 },
+    uDispersion: { value: 0.022 },
+  };
+  glassMaterial.userData.sapphireUniforms = sapphireUniforms;
+
+  // Custom shader hook injecting time-of-day environmental reflections,
+  // multi-layer anti-reflective (AR) iridescence, and curved-edge chromatic dispersion
+  glassMaterial.onBeforeCompile = (shader) => {
+    shader.uniforms.uTimeOfDay = sapphireUniforms.uTimeOfDay;
+    shader.uniforms.uWarmColor = sapphireUniforms.uWarmColor;
+    shader.uniforms.uCoolColor = sapphireUniforms.uCoolColor;
+    shader.uniforms.uGoldenHourMix = sapphireUniforms.uGoldenHourMix;
+    shader.uniforms.uArCoatingColor = sapphireUniforms.uArCoatingColor;
+    shader.uniforms.uSunDir = sapphireUniforms.uSunDir;
+    shader.uniforms.uTime = sapphireUniforms.uTime;
+    shader.uniforms.uDispersion = sapphireUniforms.uDispersion;
+
+    // Inject varying declarations in vertex shader
+    shader.vertexShader = `
+      varying vec3 vSapphireWorldPos;
+      varying vec3 vSapphireWorldNorm;
+      varying vec3 vSapphireViewDir;
+      ${shader.vertexShader}
+    `;
+
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <worldpos_vertex>',
+      `
+      #include <worldpos_vertex>
+      vSapphireWorldPos = worldPosition.xyz;
+      vSapphireWorldNorm = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+      vSapphireViewDir = normalize(cameraPosition - worldPosition.xyz);
+      `
+    );
+
+    // Inject custom lighting and reflection equations into fragment shader
+    shader.fragmentShader = `
+      varying vec3 vSapphireWorldPos;
+      varying vec3 vSapphireWorldNorm;
+      varying vec3 vSapphireViewDir;
+
+      uniform float uTimeOfDay;
+      uniform vec3 uWarmColor;
+      uniform vec3 uCoolColor;
+      uniform float uGoldenHourMix;
+      uniform vec3 uArCoatingColor;
+      uniform vec3 uSunDir;
+      uniform float uTime;
+      uniform float uDispersion;
+      ${shader.fragmentShader}
+    `;
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <dithering_fragment>',
+      `
+      // Dynamic Environmental Light Reflections across Curved Sapphire Dome
+      vec3 sN = normalize(vSapphireWorldNorm);
+      vec3 sV = normalize(vSapphireViewDir);
+      float NdotV = clamp(dot(sN, sV), 0.0, 1.0);
+      float sapphireFresnel = pow(1.0 - NdotV, 3.2);
+
+      vec3 sR = reflect(-sV, sN);
+      vec3 normSun = normalize(uSunDir);
+      float sunAlign = max(dot(sR, normSun), 0.0);
+      float sunGlint = pow(sunAlign, 38.0);
+      float broadGlow = pow(sunAlign, 5.0);
+
+      // Sky hemisphere reflection gradient
+      float skyUp = sR.y * 0.5 + 0.5;
+      vec3 envTone = mix(
+        uCoolColor * (0.85 + 0.5 * skyUp),
+        uWarmColor * (1.15 + 0.65 * broadGlow),
+        uGoldenHourMix
+      );
+
+      // Multi-layer Anti-Reflective (AR) optical coating iridescence
+      vec3 arCoating = uArCoatingColor * pow(1.0 - NdotV, 2.2) * 0.52;
+
+      // Chromatic dispersion along curved crystal dome rim
+      vec3 dispSun1 = normalize(normSun + vec3(uDispersion, 0.0, 0.0));
+      vec3 dispSun2 = normalize(normSun - vec3(uDispersion, 0.0, 0.0));
+      vec3 chromaticGlint = vec3(
+        pow(max(dot(sR, dispSun1), 0.0), 30.0),
+        pow(sunAlign, 30.0),
+        pow(max(dot(sR, dispSun2), 0.0), 30.0)
+      );
+      vec3 dispersionColor = mix(chromaticGlint * uCoolColor, chromaticGlint * uWarmColor, uGoldenHourMix);
+
+      // Blend environmental reflections onto sapphire glass dome
+      vec3 sapphireReflection = (
+        envTone * (0.35 + 0.8 * sapphireFresnel) +
+        arCoating +
+        dispersionColor * 0.75 +
+        sunGlint * (uWarmColor * 1.8 + vec3(0.45))
+      ) * 0.9;
+
+      gl_FragColor.rgb += sapphireReflection;
+
+      #include <dithering_fragment>
+      `
+    );
+  };
+
   // Dial Markers Material (3D metallic batons)
   const dialMarkersMaterial = new THREE.MeshStandardMaterial({
     color: 0xe8caa0,

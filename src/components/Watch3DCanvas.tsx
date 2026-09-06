@@ -10,6 +10,7 @@ import {
   build3DWatchModel,
   WatchMaterials,
 } from '../utils/watch3dBuilder';
+import { calculateAtmosphere, TIME_PRESETS } from '../utils/timeOfDayAtmosphere';
 
 interface Watch3DCanvasProps {
   config: WatchConfig;
@@ -77,6 +78,13 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
     materials: WatchMaterials | null;
     dynamicFace: DynamicWatchFace | null;
     specularLight: THREE.DirectionalLight | null;
+    lights: {
+      ambient: THREE.AmbientLight;
+      key: THREE.DirectionalLight;
+      rim: THREE.DirectionalLight;
+      bounce: THREE.DirectionalLight;
+      specular: THREE.DirectionalLight;
+    } | null;
     mouse: { x: number; y: number; targetX: number; targetY: number };
     isDragging: boolean;
     dragStart: { x: number; y: number };
@@ -106,6 +114,7 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
     materials: null,
     dynamicFace: null,
     specularLight: null,
+    lights: null,
     mouse: { x: 0, y: 0, targetX: 0, targetY: 0 },
     isDragging: false,
     dragStart: { x: 0, y: 0 },
@@ -214,6 +223,13 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
     stateRef.current.materials = materials;
     stateRef.current.dynamicFace = dynamicFace;
     stateRef.current.specularLight = specularLight;
+    stateRef.current.lights = {
+      ambient: ambientLight,
+      key: keyLight,
+      rim: rimLight,
+      bounce: bounceLight,
+      specular: specularLight,
+    };
 
     // Resize Handler
     const handleResize = () => {
@@ -421,14 +437,58 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
         physics.currentScale
       );
 
-      // Animate specular gleam light across sapphire dome
-      if (specLight) {
-        specLight.position.x = -4 + Math.sin(sFraction * Math.PI) * 8;
-        specLight.position.y = 5 + Math.cos(sFraction * Math.PI) * 3;
-        specLight.intensity = 2.2 + Math.abs(mouse.x) * 1.5;
+      // 4. ATMOSPHERIC TIME-OF-DAY ENVIRONMENTAL REFLECTION CALCULATIONS
+      let effectiveHour = 17.5; // Default warm golden hour
+      if (configRef.current.timeCycleActive) {
+        // Continuous daylight cycle (1 full 24hr cycle every 45 seconds)
+        effectiveHour = ((currentTime * 0.00055) * 24) % 24;
+      } else if (typeof configRef.current.timeHour === 'number') {
+        effectiveHour = configRef.current.timeHour;
+      } else if (configRef.current.timeOfDay === 'auto') {
+        const now = new Date();
+        effectiveHour = now.getHours() + now.getMinutes() / 60;
+      } else if (configRef.current.timeOfDay && TIME_PRESETS[configRef.current.timeOfDay] !== undefined) {
+        effectiveHour = TIME_PRESETS[configRef.current.timeOfDay];
       }
 
-      // 4. PERFORMANCE TELEMETRY RECORDING
+      const atmo = calculateAtmosphere(effectiveHour);
+
+      // Dynamically update environmental scene lights
+      if (stateRef.current.lights) {
+        const { ambient, key, rim, bounce, specular } = stateRef.current.lights;
+        ambient.color.copy(atmo.ambientColor);
+        ambient.intensity = atmo.ambientIntensity;
+
+        key.color.copy(atmo.keyColor);
+        key.intensity = atmo.keyIntensity;
+        key.position.copy(atmo.sunPosition);
+
+        rim.color.copy(atmo.rimColor);
+        rim.intensity = atmo.rimIntensity;
+
+        bounce.color.copy(atmo.bounceColor);
+
+        specular.color.copy(atmo.specularColor);
+        // Dynamic specular sweep across sapphire dome
+        specular.position.x = atmo.sunPosition.x * 0.6 + Math.sin(sFraction * Math.PI) * 4;
+        specular.position.y = atmo.sunPosition.y * 0.7 + Math.cos(sFraction * Math.PI) * 2;
+        specular.intensity = atmo.specularIntensity + Math.abs(mouse.x) * 0.9;
+      }
+
+      // Dynamically update Sapphire Glass Dome custom shader uniforms
+      const sapphireUniforms = materials?.glassMaterial.userData.sapphireUniforms;
+      if (sapphireUniforms) {
+        sapphireUniforms.uTimeOfDay.value = effectiveHour;
+        sapphireUniforms.uWarmColor.value.copy(atmo.glassWarmColor);
+        sapphireUniforms.uCoolColor.value.copy(atmo.glassCoolColor);
+        sapphireUniforms.uGoldenHourMix.value = atmo.goldenHourMix;
+        sapphireUniforms.uArCoatingColor.value.copy(atmo.arCoatingColor);
+        sapphireUniforms.uSunDir.value.copy(atmo.sunPosition).normalize();
+        sapphireUniforms.uTime.value = currentTime * 0.001;
+        sapphireUniforms.uDispersion.value = atmo.chromaticDispersion;
+      }
+
+      // 5. PERFORMANCE TELEMETRY RECORDING
       telemetry.frameTimes.push(frameDeltaMs);
       if (telemetry.frameTimes.length > 60) {
         telemetry.frameTimes.shift();
@@ -461,6 +521,14 @@ export const Watch3DCanvas: React.FC<Watch3DCanvasProps> = ({
           angularMomentum: angularMom,
           history: [...telemetry.frameTimes],
           rendererName: 'WebGL2 // ACES Filmic HDR',
+          atmosphere: {
+            phaseName: atmo.phaseName,
+            kelvin: atmo.kelvin,
+            goldenHourMix: atmo.goldenHourMix,
+            timeHour: effectiveHour,
+            arCoating: '#' + atmo.arCoatingColor.getHexString(),
+            solarZenith: `${atmo.sunPosition.x.toFixed(1)}, ${atmo.sunPosition.y.toFixed(1)}, ${atmo.sunPosition.z.toFixed(1)}`,
+          },
         });
       }
 

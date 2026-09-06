@@ -11,6 +11,8 @@ import {
   RefreshCw,
   Layers,
   Sparkles,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 interface TechSpecsOverlayProps {
@@ -208,7 +210,86 @@ export const TechSpecsOverlay: React.FC<TechSpecsOverlayProps> = ({
               </div>
             </div>
 
-            {/* 4. WEBGL GRAPHICS PIPELINE & MEMORY STATS */}
+            {/* 4. DYNAMIC SAPPHIRE DOME SHADER & ATMOSPHERIC LIGHTING */}
+            {metrics.atmosphere && (
+              <div className="p-3 rounded-xl bg-black/40 border border-[#c8a97e]/30 space-y-2 text-[10px]">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[#c8a97e] uppercase tracking-wider font-semibold">
+                    {metrics.atmosphere.goldenHourMix > 0.4 ? (
+                      <Sun className="w-3.5 h-3.5 text-[#ff9c38]" />
+                    ) : (
+                      <Moon className="w-3.5 h-3.5 text-[#00e5ff]" />
+                    )}
+                    <span>Sapphire Dome Shader</span>
+                  </div>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#c8a97e]/20 text-[#e6c894]">
+                    {metrics.atmosphere.phaseName}
+                  </span>
+                </div>
+
+                <div className="space-y-1.5">
+                  {/* Kelvin Color Temp */}
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="text-[#a89f91]">Color Temperature:</span>
+                    <span
+                      className="font-bold font-mono px-2 py-0.5 rounded"
+                      style={{
+                        backgroundColor:
+                          metrics.atmosphere.goldenHourMix > 0.4
+                            ? 'rgba(255, 156, 56, 0.2)'
+                            : 'rgba(0, 229, 255, 0.15)',
+                        color:
+                          metrics.atmosphere.goldenHourMix > 0.4
+                            ? '#ffb049'
+                            : '#00e5ff',
+                      }}
+                    >
+                      {metrics.atmosphere.kelvin}K ({metrics.atmosphere.goldenHourMix > 0.4 ? 'Warm Amber' : 'Cool Cobalt'})
+                    </span>
+                  </div>
+
+                  {/* Golden Hour to Evening Spectrum Slider Bar */}
+                  <div>
+                    <div className="flex justify-between text-[9px] text-[#a89f91] mb-1">
+                      <span>Cool Evening (0%)</span>
+                      <span className="text-[#f4efe6] font-bold">
+                        Golden Mix: {(metrics.atmosphere.goldenHourMix * 100).toFixed(0)}%
+                      </span>
+                      <span>Golden Hour (100%)</span>
+                    </div>
+                    <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-[#1877f2] via-[#a83bb2] to-[#ff9c38] transition-all duration-200"
+                        style={{
+                          width: `${Math.min(100, Math.max(0, metrics.atmosphere.goldenHourMix * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[9px] pt-1">
+                    <div className="bg-white/5 p-2 rounded-lg">
+                      <span className="text-[#a89f91] block">Anti-Reflective AR:</span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full border border-white/20"
+                          style={{ backgroundColor: metrics.atmosphere.arCoating }}
+                        />
+                        <span className="text-[#f4efe6] font-mono">{metrics.atmosphere.arCoating}</span>
+                      </div>
+                    </div>
+                    <div className="bg-white/5 p-2 rounded-lg">
+                      <span className="text-[#a89f91] block">Solar Zenith:</span>
+                      <span className="text-[#e6c894] font-mono block truncate">
+                        {metrics.atmosphere.solarZenith}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 5. WEBGL GRAPHICS PIPELINE & MEMORY STATS */}
             <div className="p-3 rounded-xl bg-black/40 border border-white/5 space-y-2 text-[10px]">
               <div className="flex items-center gap-1.5 text-[#c8a97e] uppercase tracking-wider font-semibold mb-1">
                 <Layers className="w-3.5 h-3.5" />
